@@ -1,18 +1,45 @@
 from fastmcp import FastMCP
 import requests
 from typing import Optional, Dict, Any
-
-mcp = FastMCP("OMG MCP SERVER")
-
 import logging
+import os
+import warnings
 
-# Configure logging
+import hmac
+import hashlib
+
+warnings.filterwarnings("ignore", message="Unverified HTTPS request")
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logging.getLogger("mcp").setLevel(logging.WARNING)
 
-
-# Simple in-memory store for authenticated session and related info
 SESSION_STORE: Dict[str, Any] = {"session": None, "base_url": None}
+
+SWITCH_LOGIN_KEY = "OliverV8Rising!"  # must match the Perl $hash_key
+
+def generate_switch_login_key(target_site_id: str, source_user_id: str) -> str:
+    """
+    Generates a login key identical to Perl's:
+    hmac_md5_hex($target_site_id.$source_user_id, $hash_key)
+    """
+    message = f"{target_site_id}{source_user_id}".encode("utf-8")
+    secret = SWITCH_LOGIN_KEY.encode("utf-8")
+    return hmac.new(secret, message, hashlib.md5).hexdigest()
+
+mcp = FastMCP("omg-mcp")
+
+@mcp.prompt()
+def system_prompt() -> str:
+    """Instructions for OMG project management agent"""
+    script_dir = os.path.dirname(__file__)
+    prompt_path = os.path.join(script_dir, "prompts", "system_instructions.md")
+    try:
+        with open(prompt_path, "r") as file:
+            return file.read()
+    except FileNotFoundError:
+        logger.error(f"System instructions file not found at: {prompt_path}")
+        return "You are an OMG project management assistant. Help users manage tasks and navigate the system." 
 
 # Helper used by tools to fetch user/company info without calling a decorated tool directly
 
@@ -217,9 +244,8 @@ def switch_site(
     target_site_id: str,
     source_user_id: str,
     source_site_id: str,
-    login_key: str,
-    utc_offset: str = "+5",
-    locale_code: str = "en-GB",
+    utc_offset: str = "-300",
+    locale_code: str = "en-US",
     timezone: str = "Asia/Karachi",
     timezone_name: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -233,8 +259,11 @@ def switch_site(
     if not session or not base_url:
         return {"ok": False, "message": "No authenticated session. Run the login tool first."}
 
+    # Generate login key using helper function
+    login_key = generate_switch_login_key(target_site_id, source_user_id)
+
     switch_url = f"{base_url}/switch"
-    
+
     payload = {
         "tsid": target_site_id,
         "suid": source_user_id,
@@ -250,7 +279,6 @@ def switch_site(
         resp = session.get(switch_url, params=payload, allow_redirects=True, verify=False)
         resp.raise_for_status()
 
-        # After a successful switch, the session is updated. Refetch user/company info.
         if resp.status_code == 200:
             updated_info = _refetch_and_store_user_data(session, base_url)
             if updated_info.get("ok"):
@@ -266,7 +294,7 @@ def switch_site(
                     "message": "Site switch may have succeeded, but failed to refetch user data.",
                     "details": updated_info.get("message"),
                 }
-        
+
         return {
             "ok": False,
             "status_code": resp.status_code,
@@ -277,7 +305,6 @@ def switch_site(
         return {"ok": False, "message": f"Site switch request failed: {e}"}
     except Exception as e:
         return {"ok": False, "message": f"An unexpected error occurred during site switch: {e}"}
-
 
 def _refetch_and_store_user_data(session: requests.Session, base_url: str) -> Dict[str, Any]:
     """
@@ -326,4 +353,4 @@ def _clear_session():
 
 
 if __name__ == "__main__":
-    mcp.run(transport="http", port=5001)
+    mcp.run(transport="stdio")

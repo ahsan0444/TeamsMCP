@@ -1,7 +1,14 @@
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 from botbuilder.schema import Attachment
 from config import settings
-from utils import pick_base_url, absolutize_url, normalize_data
+from urllib.parse import urljoin
+import json
+
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+
 
 def _as_adaptive_attachment(card: Dict[str, Any]) -> Attachment:
     return Attachment(
@@ -185,10 +192,59 @@ def error_card(message: str) -> Attachment:
     return _as_adaptive_attachment(card)
 
 
+def _normalize_data_inline(data: Any) -> Union[dict, list, str, None]:
+    """
+    Recursively normalize inline tool data into a clean, consistent structure.
+    - Unwraps single-item lists
+    - Parses JSON strings when possible
+    - Unwraps single-key dicts
+    - Handles deeply nested combinations
+    - Returns primitives as-is
+    """
+
+    # 1️⃣ Handle single-item lists
+    if isinstance(data, list):
+        if len(data) == 1:
+            return _normalize_data_inline(data[0])
+        return [_normalize_data_inline(item) for item in data]
+
+    # 2️⃣ Handle JSON strings
+    if isinstance(data, str):
+        try:
+            parsed = json.loads(data)
+            return _normalize_data_inline(parsed)
+        except (json.JSONDecodeError, TypeError):
+            return data  # Not valid JSON, return as-is
+
+    # 3️⃣ Handle dicts
+    if isinstance(data, dict):
+        # If dict has a single key, unwrap its value recursively
+        if len(data) == 1:
+            inner_val = next(iter(data.values()))
+            return _normalize_data_inline(inner_val)
+
+        # Otherwise, normalize all nested values
+        return {k: _normalize_data_inline(v) for k, v in data.items()}
+
+    # 4️⃣ Return all other types as-is (int, float, None, etc.)
+    return data
+
 def create_company_info_card(tool_result):
-    data_container = normalize_data(tool_result)
-    payload_company = (data_container.get("company") if isinstance(data_container, dict) else {}) or {}
-    payload_user = (data_container.get("user") if isinstance(data_container, dict) else {}) or {}
+    logger.info(f"Tool result: {tool_result}")
+    data_container = _normalize_data_inline(tool_result)
+    if isinstance(data_container, dict):
+        # If real data is under "text", unwrap it
+        payload = (
+            data_container.get("text")
+            if isinstance(data_container.get("text"), dict)
+            else data_container
+        )
+    else:
+        payload = data_container
+    logger.info(f"Payload: {payload}")
+    
+    payload_company = (payload.get("company") if isinstance(payload, dict) else {}) or {}
+    payload_user = (payload.get("user") if isinstance(payload, dict) else {}) or {}
 
     company_card = {
         "type": "AdaptiveCard",
@@ -245,9 +301,19 @@ def create_company_info_card(tool_result):
         company_card["body"].append(user_section)
 
     # Open Site link
-    base = pick_base_url()
+    base = settings.login_base_url or settings.mcp_server_url
     site_url = payload_company.get("site_url")
-    link = base.rstrip("/") if base else absolutize_url(site_url, None)
+    link = None
+    if site_url:
+        if not site_url.startswith(("http://", "https://")):
+            #  if base:
+            #     link = urljoin(base, site_url)
+            #  else:
+            link = site_url # cannot absolutize
+        else:
+            link = site_url
+    elif base:
+        link = base.rstrip("/")
 
     if link:
         company_card.setdefault("actions", []).append({
@@ -261,7 +327,7 @@ def create_company_info_card(tool_result):
         content=company_card
     )
 
-def create_switch_site_card(tool_result: list, user_id: str, source_site_id: str) -> Attachment:
+def create_switch_site_card(tool_result: list) -> Attachment:
     """Creates an adaptive card for switching sites."""
     sites = tool_result
 
@@ -324,8 +390,6 @@ def create_switch_site_card(tool_result: list, user_id: str, source_site_id: str
                 "title": "Switch",
                 "data": {
                     "action": "switch_site",
-                    "user_id": user_id,
-                    "source_site_id": source_site_id
                 }
             }
         ],
@@ -333,4 +397,93 @@ def create_switch_site_card(tool_result: list, user_id: str, source_site_id: str
         "version": "1.5"
     }
 
+    return _as_adaptive_attachment(card)
+
+def create_task_result_card(tool_result):
+    """Create a card showing task creation results with proper URLs."""
+    
+    # Parse the response
+    if isinstance(tool_result, str):
+        try:
+            tool_result = json.loads(tool_result)
+        except json.JSONDecodeError:
+            pass
+    
+    # Use the login_base_url from your settings
+    # base_url = settings.login_base_url or 'http://britvic.omg.sbox.oliver.solutions'
+    
+    # Extract task data - FIXED LOGIC
+    response_data = tool_result.get('response', {})
+    inner_data = response_data.get('data', {})
+    
+    # The API returns success=0 for successful creation (weird, but that's how it is)
+    is_success = inner_data.get('success') == 0 and inner_data.get('error') == 0
+    task_data = inner_data.get('data', {})
+    
+    if is_success and task_data:
+        # Construct full URL from relative item_url
+        item_url = task_data.get('item_url', '')
+        # full_url = f"{base_url.rstrip('/')}{item_url}" if item_url.startswith('/') else item_url
+        
+        card = {
+            "type": "AdaptiveCard",
+            "body": [
+                {
+                    "type": "TextBlock",
+                    "text": "✅ Task Created Successfully",
+                    "weight": "Bolder",
+                    "size": "Large",
+                    "color": "Good"
+                },
+                {
+                    "type": "FactSet",
+                    "facts": [
+                        {"title": "Task ID", "value": str(task_data.get('id', 'N/A'))},
+                        {"title": "Title", "value": task_data.get('text', 'N/A')},
+                        {"title": "Type", "value": task_data.get('type', 'N/A')},
+                        {"title": "Planning Number", "value": task_data.get('planning_number', 'N/A')},
+                        {"title": "Created By", "value": task_data.get('created_by_name', 'N/A')},
+                        {"title": "Start Date", "value": task_data.get('start_date', 'N/A')},
+                        {"title": "End Date", "value": task_data.get('end_date', 'N/A')}
+                    ]
+                }
+            ],
+            "actions": [
+                {
+                    "type": "Action.OpenUrl",
+                    "title": "View Task",
+                    "url": item_url
+                }
+            ],
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "version": "1.5"
+        }
+    else:
+        # Error case - show actual error message
+        error_message = "Unknown error"
+        if inner_data.get('error') != 0:
+            error_message = f"API error: {inner_data.get('error')}"
+        elif not tool_result.get('ok'):
+            error_message = tool_result.get('message', 'Operation failed')
+        
+        card = {
+            "type": "AdaptiveCard",
+            "body": [
+                {
+                    "type": "TextBlock",
+                    "text": "❌ Task Creation Failed",
+                    "weight": "Bolder",
+                    "size": "Large",
+                    "color": "Attention"
+                },
+                {
+                    "type": "TextBlock",
+                    "text": f"Error: {error_message}",
+                    "wrap": True
+                }
+            ],
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "version": "1.5"
+        }
+    
     return _as_adaptive_attachment(card)
