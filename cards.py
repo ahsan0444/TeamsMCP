@@ -8,8 +8,6 @@ import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-
-
 def _as_adaptive_attachment(card: Dict[str, Any]) -> Attachment:
     return Attachment(
         content_type="application/vnd.microsoft.card.adaptive",
@@ -415,6 +413,10 @@ def create_task_result_card(tool_result):
     # Extract task data - FIXED LOGIC
     response_data = tool_result.get('response', {})
     inner_data = response_data.get('data', {})
+    
+    logger.info(f"Task creation response: {response_data}")
+    logger.info(f"Inner data: {inner_data}")
+    logger.info(f"Tool result: {tool_result}")
     
     # The API returns success=0 for successful creation (weird, but that's how it is)
     is_success = inner_data.get('success') == 0 and inner_data.get('error') == 0

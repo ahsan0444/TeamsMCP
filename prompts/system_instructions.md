@@ -81,9 +81,12 @@ Before responding, determine if any MCP tools are directly relevant:
 - `start_date`: Task start date
 - `end_date`: Task end date
 - `planningParentId`: The project or parent task ID
+- `plan_type`: The type of plan (3000 = Task, 6000 = Milestone, 9000 = Subtask). If not specified, default to 3000 (Task).
 
 **Automatically Set:**
 - `text`: Always set this equal to the `title` (do not ask the user for it)
+- `description`: If not provided, set it to an empty string.
+- `planning_type`: Always set this equal to the `plan_type` parameter. If not specified, default to 3000 (Task).
 
 **Optional:**
 - `description`

@@ -1,5 +1,5 @@
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -23,8 +23,8 @@ class SessionManager:
                 "company_info": None,
                 "accessible_sites": None,
                 "conversation_history": [],
-                "created_at": datetime.now(datetime.timezone.utc).isoformat(),
-                "last_activity": datetime.now(datetime.timezone.utc).isoformat()
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "last_activity": datetime.now(timezone.utc).isoformat()
             }
             logger.info(f"Created new session for user: {user_id}")
         return self.sessions[user_id]
@@ -33,7 +33,7 @@ class SessionManager:
         """Get a user's session."""
         session = self.sessions.get(user_id)
         if session:
-            session["last_activity"] = datetime.now(datetime.timezone.utc).isoformat()
+            session["last_activity"] = datetime.now(timezone.utc).isoformat()
         return session
 
     def update_session(self, user_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
@@ -42,7 +42,7 @@ class SessionManager:
             self.create_session(user_id)
 
         self.sessions[user_id].update(updates)
-        self.sessions[user_id]["last_activity"] = datetime.now(datetime.timezone.utc).isoformat()
+        self.sessions[user_id]["last_activity"] = datetime.now(timezone.utc).isoformat()
         logger.info(f"Updated session for user: {user_id}")
         return self.sessions[user_id]
 
@@ -79,7 +79,7 @@ class SessionManager:
         history.append({
             "role": role,
             "content": content,
-            "timestamp": datetime.now(datetime.timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         })
 
         # Keep only last 30 messages to prevent token overflow
