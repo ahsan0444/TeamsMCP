@@ -3,7 +3,7 @@ from botbuilder.integration.aiohttp import CloudAdapter, ConfigurationBotFramewo
 from botbuilder.schema import Activity
 from aiohttp import web
 from agent_bot import AgentTeamsBot
-from agents import Agent
+from agents import Agent, SQLiteSession
 from agents.mcp import MCPServerStdio
 from config import settings
 from session_manager import SessionManager
@@ -50,6 +50,9 @@ async def main():
     mcp_server_path = os.path.join(bot_app_dir, "mcp_server.py")
 
     logger.info(f"MCP server path: {mcp_server_path}")
+    
+    # OPENAI Session
+    openai_session = SQLiteSession("OPEN AI SESSION MANAGEMENT")
 
     async with MCPServerStdio(
         name="OMG MCP Server",
@@ -81,7 +84,7 @@ async def main():
         session_manager = SessionManager()
         logger.info("Session manager initialized")
 
-        bot = AgentTeamsBot(agent, session_manager)
+        bot = AgentTeamsBot(agent, session_manager, openai_session)
         logger.info("Bot initialized successfully")
 
         async def messages(req: web.Request) -> web.Response:
@@ -98,7 +101,6 @@ async def main():
             activity = Activity().deserialize(body)
             auth_header = req.headers.get("Authorization", "")
 
-            logger.info(f"Incoming activity type: {activity.type}")
             if activity.text:
                 logger.info(f"From: {activity.from_property.id}, Text: {activity.text}")
 

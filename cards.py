@@ -262,7 +262,6 @@ def _normalize_data_inline(data: Any) -> Union[dict, list, str, None]:
     return data
 
 def create_company_info_card(tool_result):
-    logger.info(f"Tool result: {tool_result}")
     data_container = _normalize_data_inline(tool_result)
     if isinstance(data_container, dict):
         # If real data is under "text", unwrap it
@@ -273,8 +272,7 @@ def create_company_info_card(tool_result):
         )
     else:
         payload = data_container
-    logger.info(f"Payload: {payload}")
-    
+            
     payload_company = (payload.get("company") if isinstance(payload, dict) else {}) or {}
     payload_user = (payload.get("user") if isinstance(payload, dict) else {}) or {}
 
@@ -372,12 +370,9 @@ def create_switch_site_card(tool_result):
         )
     else:
         payload = data_container
-    logger.info(f"Payload: {payload}")
     
     sites = payload.get("sites", [])
     
-    logger.info(f"Sites: {sites}")
-
     if not sites:
         card = {
             "type": "AdaptiveCard",
@@ -452,16 +447,11 @@ def create_task_result_card(tool_result, company_info=None):
     # Extract base_url from company_info if provided, otherwise use fallback
     if company_info and company_info.get('site_url'):
         base_url = company_info['site_url']
-        logger.info(f"Using site_url from company_info: {base_url}")
     else:
         base_url = settings.login_base_url or 'http://britvic.omg.sbox.oliver.solutions'
-        logger.info(f"Using fallback base_url: {base_url}")
-
-    logger.info(f"create_task_result_card: tool_result={tool_result}")
     
     # Use the same normalization approach as create_company_info_card
     data_container = _normalize_data_inline(tool_result)
-    logger.info(f"create_task_result_card: data_container={data_container}")
     
     if isinstance(data_container, dict):
         # If real data is under "text", unwrap it
@@ -472,10 +462,6 @@ def create_task_result_card(tool_result, company_info=None):
         )
     else:
         payload = data_container
-        
-    logger.info(f"create_task_result_card: payload={payload}")
-
-    # base_url = settings.login_base_url or 'http://britvic.omg.sbox.oliver.solutions'
 
     # Extract data using the normalized payload
     # response_data = payload.get('response', {})
@@ -499,13 +485,6 @@ def create_task_result_card(tool_result, company_info=None):
     # Also check if tool_result itself indicates success
     if not is_success and task_data and task_data.get('id'):
         is_success = True
-        
-    logger.info(f"create_task_result_card: is_success={is_success}")
-    logger.info(f"create_task_result_card: task_data={task_data}")
-    logger.info(f"task id: {task_data.get('id')}")
-    logger.info(f"item_url: {task_data.get('item_url')}")
-    logger.info(f"task_url: {task_data.get('task_url')}")
-    logger.info(f"Innner data: {inner_data}")
 
     if is_success and task_data:
         # Success card logic (existing code)

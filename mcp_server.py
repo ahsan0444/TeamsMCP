@@ -206,14 +206,11 @@ def get_user_and_company_info() -> Dict[str, Any]:
 
     logger.info("Fetching user and company info from %s", base_url)
     
-    logger.info("Session: %s", session)
-    logger.info("Executing _fetch_user_and_company_info")
     if not session or not base_url:
         return {"ok": False, "message": "No authenticated session. Run the login tool first."}
 
     result = _fetch_user_and_company_info(session, base_url)
     
-    logger.info("Result: %s", result)
     if result.get("ok"):
         SESSION_STORE["user_info"] = result.get("user")
         SESSION_STORE["company_info"] = result.get("company")

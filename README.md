@@ -1,54 +1,46 @@
 # OMG Teams Bot with Agent & MCP Integration
 
-An intelligent Microsoft Teams bot that uses OpenAI's Agents SDK and Model Context Protocol (MCP) to help users manage tasks and navigate the OMG project management system.
+An intelligent Microsoft Teams bot powered by **OpenAI’s Agents SDK** and **Model Context Protocol (MCP)** that enables users to manage tasks, authenticate, and navigate the OMG project management system seamlessly from within Teams.
 
-## Features
+---
 
-- **Intelligent Agent**: Uses OpenAI's Agents SDK to analyze user intent and decide when to use MCP tools vs. general knowledge
-- **MCP Tool Integration**: Connects to OMG backend via MCP tools for authentication, task management, and site switching
-- **Adaptive Cards**: Interactive cards for login forms, task creation, site switching, and displaying results
-- **In-Memory Session Management**: Maintains user authentication state and conversation history
-- **Multi-Turn Conversations**: Context-aware interactions that remember previous messages
+## 🚀 Features
 
-## Architecture
+* **Intelligent Agent** — Uses OpenAI’s Agents SDK to interpret user intent and decide when to use MCP tools vs. general knowledge.
+* **MCP Tool Integration** — Bridges to OMG backend for actions like authentication, task creation, and site switching.
+* **Adaptive Cards** — Rich interactive cards for login, task management, and site selection.
+* **Persistent Session Management** — Maintains user sessions and authentication state using SQLite-based storage.
+* **Multi-turn Conversations** — Context-aware dialogues that remember prior interactions.
 
-```
-┌─────────────────┐
-│  Microsoft      │
-│  Teams Client   │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Bot Framework  │
-│  Adapter        │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  AgentTeamsBot  │
-│  - Event        │
-│    Handling     │
-│  - Card Forms   │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐       ┌──────────────┐
-│  OpenAI Agent   │◄─────►│ MCP Server   │
-│  with Streaming │       │ - login      │
-│                 │       │ - create_task│
-│                 │       │ - get_info   │
-│                 │       │ - switch_site│
-└─────────────────┘       └──────┬───────┘
-         │                        │
-         ▼                        ▼
-┌─────────────────┐       ┌──────────────┐
-│ Session Manager │       │ OMG Backend  │
-│ (In-Memory)     │       │              │
-└─────────────────┘       └──────────────┘
-```
+---
 
-## Setup
+## 🧩 Architecture
+
+![Architecture Diagram](Diagram.png)
+
+### 🔁 Flow Summary
+
+1. **User → Teams → Bot:**
+   User sends a message or interacts with an adaptive card.
+
+2. **Bot ↔ OpenAI Agent:**
+   The `AgentTeamsBot` forwards the message to the OpenAI Agent.
+   The Agent processes context and streams responses back to the bot.
+
+3. **Agent Tool Decision:**
+
+   * If **no tool is needed**, the Agent directly responds with a message or card to Teams.
+   * If a **tool is needed**, it calls the relevant MCP tool (e.g., `login`, `create_task`, `switch_site`).
+
+4. **MCP Server ↔ OMG Backend:**
+   The MCP server communicates bidirectionally with the OMG backend APIs to perform the requested operation and return structured data.
+
+5. **Agent → Bot → Teams:**
+   The Agent formats the tool’s result into a conversational or card-based reply, and the bot posts it back to Teams.
+
+---
+
+## ⚙️ Setup
 
 ### 1. Install Dependencies
 
@@ -56,18 +48,22 @@ An intelligent Microsoft Teams bot that uses OpenAI's Agents SDK and Model Conte
 pip install -r requirements.txt
 ```
 
-### 2. Environment Variables
+### 2. Configure Environment Variables
 
-All required environment variables are already configured in `.env`:
+Set up the following variables in your `.env` file:
 
-- `MICROSOFT_APP_ID`: Bot's Azure App Registration ID
-- `MICROSOFT_APP_PASSWORD`: Bot's client secret
-- `MICROSOFT_APP_TENANT_ID`: Azure AD tenant ID
-- `OPENAI_API_KEY`: OpenAI API key for agent
-- `BOT_PORT`: Port for bot server (default: 8000)
-- `BASE_URL`: OMG backend URL
-- `LOGIN_BASE_URL`: OMG login URL
-- `APP_BASE_URL`: Public URL for ngrok/webhook
+| Variable                  | Description                                |
+| ------------------------- | ------------------------------------------ |
+| `MICROSOFT_APP_ID`        | Azure App Registration ID for the bot      |
+| `MICROSOFT_APP_PASSWORD`  | Bot’s client secret                        |
+| `MICROSOFT_APP_TENANT_ID` | Azure AD tenant ID                         |
+| `OPENAI_API_KEY`          | API key for OpenAI Agent                   |
+| `BOT_PORT`                | Port to run the bot server (default: 8000) |
+| `BASE_URL`                | OMG backend API URL                        |
+| `LOGIN_BASE_URL`          | OMG login endpoint                         |
+| `APP_BASE_URL`            | Public URL (e.g., ngrok tunnel)            |
+
+---
 
 ### 3. Run the Bot
 
@@ -77,178 +73,159 @@ python main.py
 ```
 
 The bot will:
-1. Start the MCP server
-2. Load system instructions from `prompts/system_instructions.md`
-3. Initialize the OpenAI Agent with MCP tools
-4. Start the web server on port 8000
 
-### 4. Expose Bot to Internet (for Teams)
+1. Start the MCP server.
+2. Load system instructions from `prompts/system_instructions.md`.
+3. Initialize the OpenAI Agent with MCP tools.
+4. Launch the Teams bot on the configured port.
 
-Use ngrok or similar to expose your local bot:
+---
+
+### 4. Expose the Bot to the Internet
+
+Use `ngrok` or similar to make your bot accessible:
 
 ```bash
 ngrok http 8000
 ```
 
-Update `APP_BASE_URL` in `.env` with the ngrok URL.
+Then update `APP_BASE_URL` in your `.env` file with the generated public URL.
 
-### 5. Configure Bot in Azure
+---
 
-1. Go to Azure Portal → Bot Services → Your Bot
-2. Update the Messaging endpoint to: `https://your-ngrok-url.ngrok-free.dev/api/messages`
-3. Save changes
+### 5. Configure Azure Bot Service
 
-## Usage
+1. Go to **Azure Portal → Bot Services → Your Bot**
+2. Update the **Messaging endpoint** to:
 
-### Authentication
+   ```
+   https://your-ngrok-url.ngrok-free.app/api/messages
+   ```
+3. Save changes.
 
-**User**: "Log me in"
+---
 
-The bot will ask for credentials or show a login card. After successful login, it displays your current site and user information.
+## 💬 Usage
 
-### Task Management
+### 🔐 Authentication
 
-**User**: "Create a task called Website Redesign due tomorrow"
+**User:** “Log me in”
+→ The bot presents a login card. After authentication, the Agent confirms the user’s site and profile.
 
-The agent will:
-1. Extract task details from your message
-2. Ask for missing information (like project ID)
-3. Show a task creation card pre-filled with your details
-4. After submission, display the created task with a link
+### 🧱 Task Management
 
-### Site Switching
+**User:** “Create a task called Website Redesign due tomorrow”
+→ The Agent extracts details, fills a card, requests confirmation, and then creates the task via MCP.
 
-**User**: "What sites can I access?"
+### 🏢 Site Switching
 
-The agent fetches available sites and shows them in a dropdown card. You can select and switch to another site.
+**User:** “Switch to the London site”
+→ The Agent lists available sites and switches the current context upon selection.
 
-### General Queries
+### 🧠 General Queries
 
-**User**: "How do I track project progress?"
+**User:** “How do I track project progress?”
+→ The Agent responds using general knowledge when no tool is needed.
 
-The agent uses its general knowledge to provide helpful guidance when no MCP tool is needed.
+---
 
-## Project Structure
+## 🗂️ Project Structure
 
 ```
 bot_app/
 ├── main.py                 # Application entry point
 ├── agent_bot.py            # Bot logic and event handling
 ├── mcp_server.py           # MCP tools for OMG backend
-├── session_manager.py      # In-memory session management
-├── cards.py                # Adaptive card factories
-├── config.py               # Configuration and settings
+├── cards.py                # Adaptive Card factories
+├── config.py               # Configuration and environment
+├── session_manager.py      # SQLite-based session storage
 └── prompts/
-    └── system_instructions.md  # Agent behavior instructions
+    └── system_instructions.md  # Agent’s behavior and decision guide
 ```
 
-## Key Components
+---
 
-### AgentTeamsBot (`agent_bot.py`)
+## 🧠 Key Components
 
-- Handles incoming messages and card submissions
-- Streams events from OpenAI Agent
-- Detects tool calls and shows appropriate adaptive cards
-- Manages form submissions (login, create task, switch site)
-- Updates session state based on tool results
+### **AgentTeamsBot (`agent_bot.py`)**
 
-### MCP Server (`mcp_server.py`)
+* Handles Teams messages, card actions, and streaming Agent responses
+* Bridges between Teams and OpenAI Agent
+* Updates user context and session state
 
-Provides these tools to the agent:
+### **OpenAI Agent**
 
-- `login`: Authenticate users
-- `get_user_and_company_info`: Fetch current user/site info
-- `get_available_sites`: List accessible sites
-- `switch_site`: Change active site
-- `create_task`: Create tasks/milestones/subtasks
-- `logout`: End session
+* Parses intent and context
+* Decides whether to invoke MCP tools
+* Generates adaptive card prompts and conversational replies
 
-### Session Manager (`session_manager.py`)
+### **MCP Server (`mcp_server.py`)**
 
-Maintains in-memory state:
+* Provides tools callable by the Agent:
 
-- User authentication status
-- User and company information
-- Conversation history (last 30 messages)
-- Accessible sites list
+  * `login`
+  * `get_user_and_company_info`
+  * `get_available_sites`
+  * `switch_site`
+  * `create_task`
+  * `logout`
+* Communicates with the OMG backend bidirectionally
 
-### Agent Instructions
+---
 
-The agent follows a decision tree:
+## 🧩 Conversation Flow Example
 
-1. **Analyze Intent**: What is the user asking for?
-2. **Check Tool Relevance**: Do any MCP tools match?
-3. **Use Tools or Knowledge**: Call tools if relevant, otherwise use general knowledge
-4. **Maintain Context**: Remember conversation history for context-aware responses
+### **Creating a Task**
 
-## Adaptive Cards
+1. User: “Create a task for the marketing campaign.”
+2. Agent: “Sure! Which project should I associate it with?”
+3. User: “Project 7334.”
+4. Agent: [Displays pre-filled task creation card]
+5. User: [Submits the form]
+6. Agent: [Shows task confirmation card with task ID & link]
 
-The bot uses several card types:
+### **Switching Sites**
 
-- **Login Card**: Username/password form
-- **Task Creation Card**: Form with project ID, title, dates, description
-- **Switch Site Card**: Dropdown of available sites
-- **Company Info Card**: Displays current user and site information
-- **Task Result Card**: Shows created task details with link
-- **Success/Error Cards**: Feedback for operations
+1. User: “Switch to London office.”
+2. Agent: [Calls `get_available_sites`]
+3. Agent: [Shows dropdown selection card]
+4. User: [Selects site]
+5. Agent: [Displays updated company info]
 
-## Conversation Flow Examples
+---
 
-### Creating a Task
+## 🛠️ Development
 
-1. User: "Create a task for the marketing campaign"
-2. Agent: "I'll help you create that task. What's the project ID?"
-3. User: "Project 7334"
-4. Agent: [Shows pre-filled task creation card]
-5. User: [Fills remaining details and submits]
-6. Agent: [Shows task result card with link]
+### Adding a New MCP Tool
 
-### Switching Sites
-
-1. User: "Switch to London office"
-2. Agent: [Calls get_available_sites tool]
-3. Agent: [Shows site selection card]
-4. User: [Selects site and submits]
-5. Agent: [Shows updated company info card]
-
-## Troubleshooting
-
-### Bot doesn't respond
-
-- Check bot is running: `python main.py`
-- Verify ngrok is forwarding to port 8000
-- Check Azure bot messaging endpoint is correct
-- Review logs for errors
-
-### MCP tools failing
-
-- Ensure OMG backend URL is correct in `.env`
-- Check user is authenticated before calling protected tools
-- Review MCP server logs for connection issues
-
-### Agent not using tools
-
-- Check system instructions are loaded correctly
-- Verify MCP server is connected
-- Review agent logs to see decision making
-
-## Development
-
-### Adding New MCP Tools
-
-1. Add tool function to `mcp_server.py` with `@mcp.tool()` decorator
-2. Update `TOOL_CONFIG` in `config.py` to map tool to card factory
-3. Create card factory in `cards.py` if needed
-4. Update agent instructions if necessary
+1. Create the function in `mcp_server.py` with `@mcp.tool()` decorator.
+2. Add the tool mapping in `config.py` under `TOOL_CONFIG`.
+3. (Optional) Create a new card factory in `cards.py`.
+4. Update `system_instructions.md` if the Agent needs special handling.
 
 ### Modifying Agent Behavior
 
-Edit `bot_app/prompts/system_instructions.md` to change how the agent:
-- Analyzes user intent
-- Decides when to use tools
-- Handles parameters
-- Responds to users
+Edit `prompts/system_instructions.md` to refine:
 
-## License
+* Intent detection logic
+* Tool invocation rules
+* Prompting style and tone
 
-Proprietary - OMG Project Management System
+---
+
+## 🧾 Troubleshooting
+
+| Issue                       | Possible Fix                                                          |
+| --------------------------- | --------------------------------------------------------------------- |
+| **Bot not responding**      | Ensure `main.py` is running and `ngrok` tunnel is active              |
+| **MCP tools failing**       | Verify backend URLs and authentication tokens in `.env`               |
+| **Agent not calling tools** | Confirm `system_instructions.md` is loaded and `mcp_server` is active |
+| **Login errors**            | Check credentials and MCP tool response for debugging                 |
+
+---
+
+## 📜 License
+
+**Proprietary** — Part of the OMG Project Management System.
+
+---

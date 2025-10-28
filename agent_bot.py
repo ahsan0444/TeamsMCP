@@ -1,6 +1,6 @@
 from botbuilder.core import ActivityHandler, TurnContext, MessageFactory, CardFactory
 from botbuilder.schema import ChannelAccount, Attachment, ActivityTypes
-from agents import Agent, Runner
+from agents import Agent, Runner, SQLiteSession
 import json
 from config import settings
 import cards
@@ -18,10 +18,11 @@ logger.setLevel(logging.INFO)
 
 
 class AgentTeamsBot(ActivityHandler):
-    def __init__(self, agent: Agent, session_manager: SessionManager):
+    def __init__(self, agent: Agent, session_manager: SessionManager, openai_session: SQLiteSession):
         self.agent = agent
         self.session_manager = session_manager
         self.config = settings.TOOL_CONFIG
+        self.openai_session = openai_session
 
     async def on_message_activity(self, turn_context: TurnContext):
         user_id = turn_context.activity.from_property.id
@@ -49,10 +50,7 @@ class AgentTeamsBot(ActivityHandler):
 
         await turn_context.send_activity(MessageFactory.text("Thinking..."))
 
-        logger.info(f"User id: {user_id}")
-        
         temp_user_id = turn_context.activity.from_property.id
-        logger.info(f"Temp user id: {temp_user_id}")
         
         # DO NOT add message to history if it contains password-like patterns
         if not self._contains_sensitive_data(user_text):
@@ -65,14 +63,13 @@ class AgentTeamsBot(ActivityHandler):
         conversation_history = self.session_manager.get_conversation_history(user_id)
         
         session_info = self.session_manager.get_session(user_id)
-        logger.info(f"Session info: {session_info}")
         company_info = self.session_manager.get_company_info(user_id)
-        logger.info(f"Company info: {company_info}")
 
         try:
             result = Runner.run_streamed(
                 self.agent,
-                input=conversation_history
+                session=self.openai_session,
+                input=user_text
             )
 
             response_text = ""
@@ -80,25 +77,21 @@ class AgentTeamsBot(ActivityHandler):
             last_tool_name = None
 
             async for event in result.stream_events():
-                # logger.info(f"Event type: {event.type}")
 
                 if event.type == "run_item_stream_event":
                     if event.item.type == "tool_call_item":
                         tool_name = event.item.raw_item.name
                         last_tool_name = tool_name
-                        logger.info(f"Tool called: {tool_name}")
                         await turn_context.send_activity(MessageFactory.text(f"Using {tool_name}..."))
 
                     elif event.item.type == "tool_call_output_item":
                         tool_output = event.item.output
-                        logger.info(f"Tool output received: {tool_output}")
 
                         if last_tool_name:
                             tool_results[last_tool_name] = tool_output
 
                             tool_config = self.config.get(last_tool_name, {})
                             result_card_factory_name = tool_config.get("result_card_factory")
-                            logger.info(f"Result card factory name: {result_card_factory_name}")
                             
                             if isinstance(tool_output, str):
                                 try:
@@ -111,14 +104,11 @@ class AgentTeamsBot(ActivityHandler):
                             if result_card_factory_name:
                                 try:
                                     result_card_factory = getattr(cards, result_card_factory_name)
-                                    logger.info(f"Result card factory: {result_card_factory}")
 
                                     # Check if function accepts two parameters
                                     sig = inspect.signature(result_card_factory)
-                                    logger.info(f"Result card factory signature: {sig}")
                                     if len(sig.parameters) >= 2 and last_tool_name == "create_task" and isinstance(tool_output_data, dict):
                                         # Only pass company_info for create_task and if function supports it
-                                        logger.info(f"Calling result card factory with two parameters: {tool_output_data} and {company_info}")
                                         card_attachment = result_card_factory(tool_output_data, company_info)
                                     else:
                                         # Standard call with one parameter
@@ -126,52 +116,37 @@ class AgentTeamsBot(ActivityHandler):
                                     await turn_context.send_activity(MessageFactory.attachment(card_attachment))    
 
                                 except AttributeError:
-                                    logger.error(f"Card factory {result_card_factory_name} not found")
                                     card_attachment = create_dynamic_result_card(last_tool_name, tool_output)
                                     await turn_context.send_activity(MessageFactory.attachment(card_attachment))
                                 except Exception as e:
-                                    logger.error(f"Error creating result card: {e}")
                                     card_attachment = create_dynamic_result_card(last_tool_name, tool_output)
                                     await turn_context.send_activity(MessageFactory.attachment(card_attachment))
-                            # else:
-                                # logger.info(f"Using default result card factory for {last_tool_name}")
-                                # card_attachment = create_dynamic_result_card(last_tool_name, tool_output)
-                                # await turn_context.send_activity(MessageFactory.attachment(card_attachment))
 
                             result_data = self.extract_tool_data(tool_output_data)
-                            logger.info(f"last_tool_name testing: {last_tool_name}")
-                            logger.info(f"Tool output data testing 123: {result_data}")
                             if last_tool_name == "login" and isinstance(result_data, dict):
                                 if result_data.get("ok"):
                                     user_info = result_data.get("user")
                                     company_info = result_data.get("company")   
                                     self.session_manager.set_authenticated(user_id, True, user_info, company_info)
-                                    logger.info(f"User {user_id} authenticated successfully")
 
                             elif last_tool_name == "get_available_sites" and isinstance(result_data, dict):
-                                logger.info(f"Tool output data: {result_data}")
                                 sites = result_data.get("sites", [])
-                                logger.info(f"Sites: {sites}")
                                 self.session_manager.set_accessible_sites(user_id, sites)
-                                logger.info(f"Stored {len(sites)} accessible sites for user {user_id}")
 
                             elif last_tool_name == "logout":
                                 self.session_manager.delete_session(user_id)
-                                logger.info(f"User {user_id} logged out")
 
                     elif event.item.type == "message_output_item":
                         if hasattr(event.item.raw_item, 'content') and event.item.raw_item.content:
                             content = event.item.raw_item.content[0]
                             if hasattr(content, 'text'):
                                 response_text = content.text
-                                logger.info(f"Agent response: {response_text}")
 
             if response_text:
                 self.session_manager.add_to_history(user_id, "assistant", response_text)
                 await turn_context.send_activity(MessageFactory.text(response_text))
 
         except Exception as e:
-            logger.error(f"Error in agent execution: {e}", exc_info=True)
             await turn_context.send_activity(
                 MessageFactory.text(f"Sorry, I encountered an error: {str(e)}")
             )
@@ -179,8 +154,6 @@ class AgentTeamsBot(ActivityHandler):
     async def _handle_card_submission(self, turn_context: TurnContext, user_id: str):
         value = turn_context.activity.value
         action = value.get("action")
-
-        logger.info(f"Card submission received. Action: {action}, Data: {value}")
 
         try:
             if action == "login":
@@ -194,7 +167,6 @@ class AgentTeamsBot(ActivityHandler):
                     MessageFactory.text(f"Unknown action: {action}")
                 )
         except Exception as e:
-            logger.error(f"Error handling card submission: {e}", exc_info=True)
             error_attachment = cards.error_card(f"Failed to process: {str(e)}")
             await turn_context.send_activity(MessageFactory.attachment(error_attachment))
 
@@ -206,9 +178,6 @@ class AgentTeamsBot(ActivityHandler):
             error_attachment = cards.error_card("Username and password are required")
             await turn_context.send_activity(MessageFactory.attachment(error_attachment))
             return
-
-        # DO NOT log credentials
-        logger.info(f"Login attempt for user: {user_id}")
 
         # Add sanitized message to history
         login_message = f"User submitted login form"
@@ -222,11 +191,13 @@ class AgentTeamsBot(ActivityHandler):
             "role": "user",
             "content": f"Use the login tool with username='{username}' and password='{password}'. Do not echo credentials."
         })
+        
+        user_message = f"role: user, content: Use the login tool with username='{username}' and password='{password}' and login. Do not echo credentials." 
 
         await turn_context.send_activity(MessageFactory.text("🔐 Authenticating securely..."))
 
         try:
-            result = Runner.run_streamed(self.agent, input=conversation_history)
+            result = Runner.run_streamed(self.agent, session=self.openai_session, input=user_message)
 
             async for event in result.stream_events():
                 if event.type == "run_item_stream_event" and event.item.type == "tool_call_output_item":
@@ -239,7 +210,6 @@ class AgentTeamsBot(ActivityHandler):
                             pass
 
                     tool_response = self.extract_tool_data(tool_output)
-                    logger.info(f"Tool response: {tool_response}")
                     if isinstance(tool_response, dict) and tool_response.get("ok"):
                         user_info = tool_response.get("user")
                         company_info = tool_response.get("company")
@@ -247,16 +217,11 @@ class AgentTeamsBot(ActivityHandler):
 
                         card_attachment = cards.create_company_info_card(tool_output)
                         await turn_context.send_activity(MessageFactory.attachment(card_attachment))
-
-                        logger.info(f"User {user_id} authenticated successfully")
                     else:
                         error_attachment = cards.error_card("Login failed. Please check your credentials and try again.")
                         await turn_context.send_activity(MessageFactory.attachment(error_attachment))
 
-                        logger.warning(f"Failed login attempt for user: {user_id}")
-
         except Exception as e:
-            logger.error(f"Error during login: {e}")
             error_attachment = cards.error_card("An error occurred during login. Please try again.")
             await turn_context.send_activity(MessageFactory.attachment(error_attachment))
 
@@ -304,7 +269,7 @@ class AgentTeamsBot(ActivityHandler):
 
         await turn_context.send_activity(MessageFactory.text("Creating task..."))
 
-        result = Runner.run_streamed(self.agent, input=conversation_history)
+        result = Runner.run_streamed(self.agent, session=self.openai_session, input=create_message)
 
         async for event in result.stream_events():
             if event.type == "run_item_stream_event" and event.item.type == "tool_call_output_item":
@@ -349,8 +314,6 @@ class AgentTeamsBot(ActivityHandler):
         source_site_id = str(company_info.get("site_id"))
         login_key = target_site.get("login_key", "")
 
-        logger.info(f"Switch site parameters - target_site_id: {target_site_id}, source_user_id: {source_user_id}, source_site_id: {source_site_id}, login_key: {login_key}")
-
         switch_message = f"Switch to site {target_site.get('site_name')}"
         self.session_manager.add_to_history(user_id, "user", switch_message)
 
@@ -362,61 +325,51 @@ class AgentTeamsBot(ActivityHandler):
 
         await turn_context.send_activity(MessageFactory.text("Switching site..."))
 
-        result = Runner.run_streamed(self.agent, input=conversation_history)
+        result = Runner.run_streamed(self.agent, session=self.openai_session, input=switch_message)
 
         tool_output_received = False
         tool_output_data = None
 
         async for event in result.stream_events():
-            # logger.info(f"Event type: {event.type}, Item type: {event.item.type}")
             
             if event.type == "run_item_stream_event" and event.item.type == "tool_call_item":
-                # logger.info(f"Tool call: {event.item.call}")
-                logger.info(f"Testing tool call")
+                pass
                 
             elif event.type == "run_item_stream_event" and event.item.type == "tool_call_output_item":
                 tool_output = event.item.output
                 tool_output_received = True
-                logger.info(f"Raw tool output: {tool_output}")
 
                 if isinstance(tool_output, str):
                     try:
                         tool_output_data = json.loads(tool_output)
-                        logger.info(f"Parsed tool output: {tool_output_data}")
                     except json.JSONDecodeError as e:
-                        logger.error(f"Failed to parse tool output as JSON: {e}")
                         tool_output_data = tool_output
                 else:
                     tool_output_data = tool_output
-                    logger.info(f"Tool output (already dict): {tool_output_data}")
 
                 # Extract main data using your helper function
                 main_data = self.extract_tool_data(tool_output_data) if hasattr(self, 'extract_tool_data') else tool_output_data
-                logger.info(f"Extracted main data: {main_data}")
 
                 if isinstance(main_data, dict) and main_data.get("ok"):
                     updated_user_info = main_data.get("user")
                     updated_company_info = main_data.get("company")
                     self.session_manager.set_authenticated(user_id, True, updated_user_info, updated_company_info)
-                    logger.info(f"Site switch successful. Updated user: {updated_user_info is not None}, company: {updated_company_info is not None}")
 
                     card_attachment = cards.create_company_info_card(main_data)
                     await turn_context.send_activity(MessageFactory.attachment(card_attachment))
                 else:
                     error_message = main_data.get("message", "Site switch failed") if isinstance(main_data, dict) else "Site switch failed"
-                    logger.error(f"Site switch failed: {error_message}")
                     error_attachment = cards.error_card(f"Site switch failed: {error_message}")
                     await turn_context.send_activity(MessageFactory.attachment(error_attachment))
 
             elif event.type == "run_item_stream_event" and event.item.type == "text_item":
-                logger.info(f"Text item: {event.item.text}")
+                pass
 
             elif event.type == "error_event":
-                logger.error(f"Error event: {event}")
+                pass
 
         # If no tool output was received at all
         if not tool_output_received:
-            logger.error("No tool output received in stream events")
             error_attachment = cards.error_card("No response received from site switch operation")
             await turn_context.send_activity(MessageFactory.attachment(error_attachment))
     def _convert_date_to_iso(self, date_str: str) -> str:
