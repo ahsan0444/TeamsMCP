@@ -43,7 +43,7 @@ def system_prompt() -> str:
 
 # Helper used by tools to fetch user/company info without calling a decorated tool directly
 
-def _fetch_user_and_company_info(session: requests.Session, base_url: str) -> Dict[str, Any]:
+def _fetch_user_and_company_info(session, base_url: str) -> Dict[str, Any]:
     info_url = f"{base_url}/getUserAndCompanyInfo"
     try:
         if not session or not base_url:
@@ -78,7 +78,7 @@ def _fetch_user_and_company_info(session: requests.Session, base_url: str) -> Di
         }
 
     except requests.exceptions.JSONDecodeError as e:
-        return {"ok": False, "message": f"Invalid JSON response from server: {str(e)}"}
+        return {"ok": False, "message": f"Invalid JSON response from server: {str(e)} (Response text: {resp.text})"}
     except requests.exceptions.RequestException as e:
         return {"ok": False, "message": f"Request failed: {str(e)}"}
     except Exception as e:
@@ -119,6 +119,7 @@ def login(
 
     # Fetch and store user/company info via helper (do NOT call a decorated tool here)
     user_company_info = _fetch_user_and_company_info(session, base_url)
+    
     if user_company_info.get("ok"):
         SESSION_STORE["user"] = user_company_info.get("user")
         SESSION_STORE["company"] = user_company_info.get("company")
@@ -126,6 +127,7 @@ def login(
             "ok": True,
             "login_status": resp.status_code,
             "session_cookie": session.cookies.get("session_id"),
+            # "session": session,
             "user": SESSION_STORE.get("user"),
             "company": SESSION_STORE.get("company")
         }
@@ -134,7 +136,9 @@ def login(
         "ok": True,
         "login_status": resp.status_code,
         "session_cookie": session.cookies.get("session_id"),
-        "message": "Login succeeded, but user/company info could not be fetched."
+        # "session": session,
+        "message": "Login succeeded, but user/company info could not be fetched.",
+        "user_company_info": user_company_info
     }
 
 
@@ -159,20 +163,38 @@ def create_task(
         "Content-Type": "application/json"
     }
 
-    resp = session.post(create_url, headers=headers, json=task_payload)
-    content_type = resp.headers.get("Content-Type", "")
-
     try:
-        data = resp.json() if "application/json" in content_type else resp.text
-    except Exception:
-        data = resp.text
+        resp = session.post(create_url, headers=headers, json=task_payload, verify=False)
+        content_type = resp.headers.get("Content-Type", "")
 
-    return {
-        "ok": resp.status_code in (200, 201, 202),
-        "status_code": resp.status_code,
-        "response": data
-    }
+        try:
+            data = resp.json() if "application/json" in content_type else resp.text
+        except Exception:
+            data = resp.text
 
+        # Determine success from response
+        is_success = resp.status_code in (200, 201, 202)
+
+        # If data is dict, check for success indicators
+        if isinstance(data, dict):
+            inner = data.get('data', {})
+            if isinstance(inner, dict):
+                # Check if backend indicates success
+                if inner.get('success') == 0 and (inner.get('error') == 0 or inner.get('error') is None):
+                    is_success = True
+
+        return {
+            "ok": is_success,
+            "status_code": resp.status_code,
+            "response": data
+        }
+    except Exception as e:
+        logger.error(f"Error creating task: {e}")
+        return {
+            "ok": False,
+            "status_code": 500,
+            "message": f"Failed to create task: {str(e)}"
+        }
 
 @mcp.tool(description="Fetches the logged-in user's and company's information from destination edpoint and stores it in memory.")
 def get_user_and_company_info() -> Dict[str, Any]:

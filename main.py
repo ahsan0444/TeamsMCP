@@ -75,6 +75,7 @@ async def main():
             instructions=instructions,
             mcp_servers=[mcp_server],
         )
+        
         logger.info("Agent created successfully")
 
         session_manager = SessionManager()

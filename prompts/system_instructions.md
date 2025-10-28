@@ -38,6 +38,8 @@ Before responding, determine if any MCP tools are directly relevant:
 **Task Management:**
 - User wants to create a task/milestone/subtask → use `create_task` tool
 - User mentions deadlines, assignments, or project work → likely needs `create_task`
+- As part of the tool response, add an additional field 'task_url' that contains the URL to the created task. This url is composed on the base url of the currently logged in site + the item_url field from the response.
+- If the item_url field is not present in the response, do not include the task_url field in the response.
 
 **Information Queries:**
 - User asks "where am I?" or "what site?" → use `get_user_and_company_info`

@@ -15,46 +15,80 @@ def _as_adaptive_attachment(card: Dict[str, Any]) -> Attachment:
     )
 
 def create_login_card(userid: str, username: Optional[str] = None) -> Attachment:
-    """Creates an adaptive card Attachment for user login."""
-    
+    """Creates a secure adaptive card for user login."""
+
     card = {
         "type": "AdaptiveCard",
         "body": [
             {
+                "type": "Container",
+                "items": [
+                    {
+                        "type": "TextBlock",
+                        "text": "🔐 Secure Login",
+                        "weight": "Bolder",
+                        "size": "ExtraLarge",
+                        "horizontalAlignment": "Center"
+                    },
+                    {
+                        "type": "TextBlock",
+                        "text": "Your credentials are encrypted and never stored in chat history",
+                        "size": "Small",
+                        "color": "Accent",
+                        "horizontalAlignment": "Center",
+                        "wrap": True
+                    }
+                ],
+                "style": "emphasis"
+            },
+            {
+                "type": "Container",
+                "items": [
+                    {
+                        "type": "Input.Text",
+                        "id": "username",
+                        "label": "Username",
+                        "placeholder": "Enter your username",
+                        "isRequired": True,
+                        "errorMessage": "Username is required",
+                        **({"value": username} if username else {})
+                    },
+                    {
+                        "type": "Input.Text",
+                        "id": "password",
+                        "label": "Password",
+                        "placeholder": "Enter your password",
+                        "style": "Password",  # This makes it a password field
+                        "isRequired": True,
+                        "errorMessage": "Password is required"
+                    }
+                ],
+                "spacing": "Medium"
+            },
+            {
                 "type": "TextBlock",
-                "text": "Please log in to continue",
-                "weight": "Bolder",
-                "size": "ExtraLarge"
-            },
-            {
-                "type": "Input.Text",
-                "id": "username",
-                "placeholder": "Enter username",
-                "label": "Username",
-                **({"value": username} if username else {})
-            },
-            {
-                "type": "Input.Text",
-                "id": "password",
-                "placeholder": "Enter password",
-                "label": "Password",
-                "isPassword": True
+                "text": "⚠️ Never share your password with anyone. Our team will never ask for it in chat.",
+                "size": "Small",
+                "color": "Warning",
+                "wrap": True,
+                "spacing": "Medium"
             }
         ],
         "actions": [
             {
                 "type": "Action.Submit",
-                "title": "Log In",
+                "title": "🔓 Login Securely",
                 "data": {
                     "action": "login",
                     "userid": userid
-                }
+                },
+                "style": "positive"
             }
         ],
         "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
         "version": "1.5"
     }
-    
+
     return _as_adaptive_attachment(card)
 
 def create_task_creation_card(prefill: Optional[Dict[str, Any]] = None) -> Attachment:
@@ -325,9 +359,24 @@ def create_company_info_card(tool_result):
         content=company_card
     )
 
-def create_switch_site_card(tool_result: list) -> Attachment:
+def create_switch_site_card(tool_result):
     """Creates an adaptive card for switching sites."""
-    sites = tool_result
+    
+    data_container = _normalize_data_inline(tool_result)
+    if isinstance(data_container, dict):
+        # If real data is under "text", unwrap it
+        payload = (
+            data_container.get("text")
+            if isinstance(data_container.get("text"), dict)
+            else data_container
+        )
+    else:
+        payload = data_container
+    logger.info(f"Payload: {payload}")
+    
+    sites = payload.get("sites", [])
+    
+    logger.info(f"Sites: {sites}")
 
     if not sites:
         card = {
@@ -397,42 +446,86 @@ def create_switch_site_card(tool_result: list) -> Attachment:
 
     return _as_adaptive_attachment(card)
 
-def create_task_result_card(tool_result):
+def create_task_result_card(tool_result, company_info=None):
     """Create a card showing task creation results with proper URLs."""
     
-    # Parse the response
-    if isinstance(tool_result, str):
-        try:
-            tool_result = json.loads(tool_result)
-        except json.JSONDecodeError:
-            pass
+    # Extract base_url from company_info if provided, otherwise use fallback
+    if company_info and company_info.get('site_url'):
+        base_url = company_info['site_url']
+        logger.info(f"Using site_url from company_info: {base_url}")
+    else:
+        base_url = settings.login_base_url or 'http://britvic.omg.sbox.oliver.solutions'
+        logger.info(f"Using fallback base_url: {base_url}")
+
+    logger.info(f"create_task_result_card: tool_result={tool_result}")
     
-    # Use the login_base_url from your settings
-    # base_url = settings.login_base_url or 'http://britvic.omg.sbox.oliver.solutions'
+    # Use the same normalization approach as create_company_info_card
+    data_container = _normalize_data_inline(tool_result)
+    logger.info(f"create_task_result_card: data_container={data_container}")
     
-    # Extract task data - FIXED LOGIC
-    response_data = tool_result.get('response', {})
-    inner_data = response_data.get('data', {})
-    
-    logger.info(f"Task creation response: {response_data}")
-    logger.info(f"Inner data: {inner_data}")
-    logger.info(f"Tool result: {tool_result}")
-    
-    # The API returns success=0 for successful creation (weird, but that's how it is)
-    is_success = inner_data.get('success') == 0 and inner_data.get('error') == 0
-    task_data = inner_data.get('data', {})
-    
-    if is_success and task_data:
-        # Construct full URL from relative item_url
-        item_url = task_data.get('item_url', '')
-        # full_url = f"{base_url.rstrip('/')}{item_url}" if item_url.startswith('/') else item_url
+    if isinstance(data_container, dict):
+        # If real data is under "text", unwrap it
+        payload = (
+            data_container.get("text")
+            if isinstance(data_container.get("text"), dict)
+            else data_container
+        )
+    else:
+        payload = data_container
         
+    logger.info(f"create_task_result_card: payload={payload}")
+
+    # base_url = settings.login_base_url or 'http://britvic.omg.sbox.oliver.solutions'
+
+    # Extract data using the normalized payload
+    # response_data = payload.get('response', {})
+    inner_data = payload.get('response', {})
+
+    # FIXED: Handle both error: 0 and error: None as success
+    error_value = inner_data.get('error')
+    success_value = inner_data.get('success')
+
+    # Success if error is 0 or None, and success is 0
+    is_success = (
+        tool_result.get('ok') == True and 
+        tool_result.get('status_code') == 200
+    ) or (
+        error_value == 0 and 
+        success_value == 1
+    )
+    
+    task_data = inner_data.get('data', {})
+
+    # Also check if tool_result itself indicates success
+    if not is_success and task_data and task_data.get('id'):
+        is_success = True
+        
+    logger.info(f"create_task_result_card: is_success={is_success}")
+    logger.info(f"create_task_result_card: task_data={task_data}")
+    logger.info(f"task id: {task_data.get('id')}")
+    logger.info(f"item_url: {task_data.get('item_url')}")
+    logger.info(f"task_url: {task_data.get('task_url')}")
+    logger.info(f"Innner data: {inner_data}")
+
+    if is_success and task_data:
+        # Success card logic (existing code)
+        item_url = task_data.get('item_url', '')
+        full_url = f"{base_url.rstrip('/')}{item_url}" if item_url.startswith('/') else item_url
+
+        # Determine the type display name
+        type_display = task_data.get('type', 'Task')
+        plan_type = task_data.get('plan_type') or task_data.get('planning_type')
+        if plan_type == 6000 or plan_type == '6000':
+            type_display = 'Milestone'
+        elif plan_type == 9000 or plan_type == '9000':
+            type_display = 'Subtask'
+
         card = {
             "type": "AdaptiveCard",
             "body": [
                 {
                     "type": "TextBlock",
-                    "text": "✅ Task Created Successfully",
+                    "text": f"✅ {type_display} Created Successfully",
                     "weight": "Bolder",
                     "size": "Large",
                     "color": "Good"
@@ -440,10 +533,10 @@ def create_task_result_card(tool_result):
                 {
                     "type": "FactSet",
                     "facts": [
-                        {"title": "Task ID", "value": str(task_data.get('id', 'N/A'))},
+                        {"title": "ID", "value": str(task_data.get('id', 'N/A'))},
                         {"title": "Title", "value": task_data.get('text', 'N/A')},
-                        {"title": "Type", "value": task_data.get('type', 'N/A')},
-                        {"title": "Planning Number", "value": task_data.get('planning_number', 'N/A')},
+                        {"title": "Type", "value": type_display},
+                        {"title": "Planning Number", "value": str(task_data.get('planning_number', 'N/A'))},
                         {"title": "Created By", "value": task_data.get('created_by_name', 'N/A')},
                         {"title": "Start Date", "value": task_data.get('start_date', 'N/A')},
                         {"title": "End Date", "value": task_data.get('end_date', 'N/A')}
@@ -453,21 +546,22 @@ def create_task_result_card(tool_result):
             "actions": [
                 {
                     "type": "Action.OpenUrl",
-                    "title": "View Task",
-                    "url": item_url
+                    "title": f"View {type_display} 🔗",
+                    "url": full_url
                 }
             ],
             "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
             "version": "1.5"
         }
     else:
-        # Error case - show actual error message
+        # Error handling (existing logic)
         error_message = "Unknown error"
-        if inner_data.get('error') != 0:
-            error_message = f"API error: {inner_data.get('error')}"
+        if error_value and error_value != 0:
+            error_message = f"API error: {error_value}"
         elif not tool_result.get('ok'):
             error_message = tool_result.get('message', 'Operation failed')
-        
+
+        # Add more debug info
         card = {
             "type": "AdaptiveCard",
             "body": [
@@ -487,5 +581,5 @@ def create_task_result_card(tool_result):
             "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
             "version": "1.5"
         }
-    
+
     return _as_adaptive_attachment(card)
